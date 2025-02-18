@@ -1,4 +1,4 @@
-module github.com/scorify/check-template
+module github.com/scorify/telnet
 
 go 1.22.6
 
