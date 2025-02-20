@@ -1,4 +1,4 @@
-module github.com/scorify/telnet
+module github.com/scorify/nc
 
 go 1.22.6
 
