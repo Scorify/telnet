@@ -1,46 +1,113 @@
-package check_template
+package nc
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"net"
 
 	"github.com/scorify/schema"
 )
 
-// Schema is a custom defined struct that will hold the check configuration
 type Schema struct {
-	Target string `key:"target"` // Make sure to use the scorify tags to define the key in the config
-	Port   int    `key:"port"`
-
-	// Add any additional fields that you want to pass in as config
+	Target         string `key:"target"`
+	Port           int    `key:"port" default:"23"`
+	Command        string `key:"command"`
+	ExpectedOutput string `key:"expected_output"`
 }
 
 func Validate(config string) error {
-	// Define a new Schema
 	conf := Schema{}
 
-	// Unmarshal the config to the Schema
 	err := schema.Unmarshal([]byte(config), &conf)
 	if err != nil {
 		return err
 	}
 
-	// Custom validation logic
+	if conf.Target == "" {
+		return fmt.Errorf("target is required")
+	}
+
+	if conf.Port < 1 || conf.Port > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535")
+	}
+
+	if conf.Command == "" {
+		return fmt.Errorf("command is required")
+	}
+
+	if conf.ExpectedOutput == "" {
+		return fmt.Errorf("expected_output is required")
+	}
 
 	return nil
 }
 
-// Run is the function that will get called to run an instance of a check
 func Run(ctx context.Context, config string) error {
-	// Define a new Schema
 	conf := Schema{}
 
-	// Unmarshal the config to the Schema
 	err := schema.Unmarshal([]byte(config), &conf)
 	if err != nil {
 		return err
 	}
 
-	// Custom logic to run the check
+	connStr := fmt.Sprintf("%s:%d", conf.Target, conf.Port)
+	dialer := net.Dialer{}
+	conn, err := dialer.DialContext(ctx, "tcp", connStr)
+	if err != nil {
+		return fmt.Errorf("failed to connect to %q: %w", connStr, err)
+	}
+	defer conn.Close()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return fmt.Errorf("failed to get deadline")
+	}
+
+	err = conn.SetDeadline(deadline)
+	if err != nil {
+		return fmt.Errorf("failed to set deadline: %w", err)
+	}
+
+	buffer := make([]byte, 2048)
+
+	// read until the buffer is not 2048 bytes
+	for ctx.Err() == nil {
+		i, err := conn.Read(buffer)
+		if err != nil {
+			return fmt.Errorf("failed to read from %q: %w", connStr, err)
+		}
+
+		if i < 2048 {
+			break
+		}
+	}
+
+	_, err = conn.Write([]byte(conf.Command + "\n"))
+	if err != nil {
+		return fmt.Errorf("failed to write to %q: %w", connStr, err)
+	}
+
+	output := bytes.NewBuffer(nil)
+	buffer = make([]byte, 2048)
+
+	// read until the buffer is not 2048 bytes
+	for ctx.Err() == nil {
+		i, err := conn.Read(buffer)
+		if err != nil {
+			return fmt.Errorf("failed to read from %q: %w", connStr, err)
+		}
+		fmt.Println(i, string(buffer[:i]))
+		output.Write(buffer[:i])
+
+		if i < 2048 {
+			break
+		}
+	}
+
+	if !bytes.Contains(output.Bytes(), []byte(conf.ExpectedOutput)) {
+		return fmt.Errorf("expected output %q not found in %q", conf.ExpectedOutput, output.String())
+	}
 
 	return nil
 }

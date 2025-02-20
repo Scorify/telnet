@@ -1,4 +1,4 @@
-module github.com/scorify/check-template
+module github.com/scorify/nc
 
 go 1.22.6
 
